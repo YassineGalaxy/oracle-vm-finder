@@ -1,0 +1,4 @@
+# Force les fins de ligne LF (indispensable pour les scripts exécutés sur Linux/GitHub runners)
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
