@@ -4,6 +4,10 @@ on:
   schedule:
     - cron: '*/10 * * * *'   # toutes les ~10 min (GitHub peut décaler en charge)
   workflow_dispatch: {}        # bouton "Run workflow" pour tester à la main
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'FOUND.flag'           # le commit du drapeau (succès) ne doit PAS relancer une recherche
 
 concurrency:
   group: find-oracle-vm
