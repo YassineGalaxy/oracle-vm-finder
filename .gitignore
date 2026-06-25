@@ -1,0 +1,6 @@
+# Ne JAMAIS committer de clés ni de secrets
+*.pem
+*.key
+oci_api_key*
+id_*
+.oci/

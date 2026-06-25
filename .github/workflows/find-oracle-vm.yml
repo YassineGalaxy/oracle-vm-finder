@@ -1,0 +1,85 @@
+name: Find Oracle Free VM
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'   # toutes les ~10 min (GitHub peut décaler en charge)
+  workflow_dispatch: {}        # bouton "Run workflow" pour tester à la main
+
+concurrency:
+  group: find-oracle-vm
+  cancel-in-progress: false    # ne pas lancer deux passes en parallèle
+
+permissions:
+  contents: write              # pour committer FOUND.flag au succès
+
+jobs:
+  find:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Déjà trouvée ? (drapeau)
+        id: guard
+        run: |
+          if [ -f FOUND.flag ]; then
+            echo "VM déjà trouvée ($(cat FOUND.flag)) — passe ignorée."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Python
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Installer OCI CLI
+        if: steps.guard.outputs.skip != 'true'
+        run: pip install --quiet oci-cli
+
+      - name: Configurer OCI + clés
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          OCI_USER: ${{ secrets.OCI_USER }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_TENANCY: ${{ secrets.OCI_TENANCY }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_KEY_PEM: ${{ secrets.OCI_KEY_PEM }}
+          SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+        run: |
+          mkdir -p ~/.oci
+          printf '%s\n' "$OCI_KEY_PEM" > ~/.oci/key.pem
+          chmod 600 ~/.oci/key.pem
+          printf '%s\n' "$SSH_PUBLIC_KEY" > ~/.oci/ssh_pub.pub
+          cat > ~/.oci/config <<EOF
+          [DEFAULT]
+          user=${OCI_USER}
+          fingerprint=${OCI_FINGERPRINT}
+          tenancy=${OCI_TENANCY}
+          region=${OCI_REGION}
+          key_file=$HOME/.oci/key.pem
+          EOF
+          chmod 600 ~/.oci/config
+
+      - name: Tenter de créer la VM
+        id: try
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          OCI_COMPARTMENT: ${{ secrets.OCI_COMPARTMENT }}
+          OCI_SUBNET: ${{ secrets.OCI_SUBNET }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_EMAIL: ${{ secrets.NTFY_EMAIL }}
+          MAX_DURATION: '280'
+        run: bash find-oracle-vm.sh
+
+      - name: Enregistrer le succès (drapeau + IP)
+        if: steps.try.outputs.found == 'true'
+        run: |
+          printf 'IP=%s\nOCID=%s\n' "${{ steps.try.outputs.ip }}" "${{ steps.try.outputs.ocid }}" > FOUND.flag
+          git config user.name  "vm-finder"
+          git config user.email "vm-finder@users.noreply.github.com"
+          git add FOUND.flag
+          git commit -m "VM Oracle trouvée: ${{ steps.try.outputs.ip }}"
+          git push
